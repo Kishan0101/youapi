@@ -1,0 +1,7 @@
+streamlit
+yt-dlp
+numpy
+opencv-python-headless
+moviepy
+Pillow
+youtube-transcript-api
