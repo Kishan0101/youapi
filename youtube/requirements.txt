@@ -1,7 +1,7 @@
 streamlit
 yt-dlp
 numpy
-opencv-python-headless
+opencv-python
 moviepy
 Pillow
 youtube-transcript-api

@@ -11,12 +11,15 @@ from PIL import Image
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
 import streamlit as st
-import tempfile
 
-# Configure ImageMagick path (adjust if necessary for Streamlit Cloud)
-IMAGEMAGICK_BINARY = os.getenv("IMAGEMAGICK_BINARY", "/usr/bin/convert")
-if os.path.exists(IMAGEMAGICK_BINARY):
-    change_settings({"IMAGEMAGICK_BINARY": IMAGEMAGICK_BINARY})
+# Attempt to set ImageMagick binary dynamically for cloud and local environments
+if "IMAGEMAGICK_BINARY" in os.environ:
+    change_settings({"IMAGEMAGICK_BINARY": os.environ["IMAGEMAGICK_BINARY"]})
+else:
+    # Fallback for local development (Windows-specific path)
+    IMAGEMAGICK_BINARY = r"C:\Program Files (x86)\ImageMagick-7.1.1-Q16\magick.exe"
+    if os.path.exists(IMAGEMAGICK_BINARY):
+        change_settings({"IMAGEMAGICK_BINARY": IMAGEMAGICK_BINARY})
 
 class YouTubeShortGenerator:
     def __init__(self):
@@ -24,7 +27,7 @@ class YouTubeShortGenerator:
         self.video_id = ""
         self.video_title = "YouTube Video"
         self.video_length = 0
-        self.output_folder = tempfile.mkdtemp()  # Use temporary directory for Streamlit Cloud
+        self.output_folder = "generated_shorts"
         self.max_short_length = 60  # Maximum duration for each short
         self.min_short_length = 30  # Minimum duration for each short
         self.engagement_data = []
@@ -85,6 +88,7 @@ class YouTubeShortGenerator:
         """Fetch transcript with auto language detection"""
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(self.video_id)
+            
             try:
                 transcript = transcript_list.find_generated_transcript(['en'])
                 self.language = 'en'
@@ -103,6 +107,7 @@ class YouTubeShortGenerator:
                         return False
             
             self.transcript = transcript.fetch()
+            
             if self.transcript and not isinstance(self.transcript[0], dict):
                 self.transcript = [{
                     'text': s.text,
@@ -112,6 +117,7 @@ class YouTubeShortGenerator:
             
             st.info(f"Auto-detected transcript language: {self.language}")
             return True
+            
         except TranscriptsDisabled:
             st.warning("Transcripts are disabled for this video")
             return False
@@ -125,12 +131,15 @@ class YouTubeShortGenerator:
             if not self.transcript:
                 st.warning("No transcript available - creating segments of at least 30 seconds")
                 segment_count = min(3, int(self.video_length // self.min_short_length))
+                
                 for i in range(segment_count):
                     start = i * (self.video_length / segment_count)
                     end = start + self.min_short_length
+                    
                     if end > self.video_length:
                         end = self.video_length
                         start = max(0, end - self.min_short_length)
+                    
                     self.engagement_data.append({
                         'start': start,
                         'end': end,
@@ -180,7 +189,9 @@ class YouTubeShortGenerator:
             if not self.engagement_data:
                 st.warning("No valid segments from transcript - using default segments")
                 return self.analyze_engagement(video_path)
+                
             return True
+            
         except Exception as e:
             st.error(f"Error analyzing engagement: {e}")
             return False
@@ -190,12 +201,15 @@ class YouTubeShortGenerator:
         try:
             self.engagement_data = []
             segment_count = int(self.video_length // self.min_short_length)
+            
             for i in range(segment_count):
                 start = i * self.min_short_length
                 end = start + self.min_short_length
+                
                 if end > self.video_length:
                     end = self.video_length
                     start = max(0, end - self.min_short_length)
+                
                 self.engagement_data.append({
                     'start': start,
                     'end': end,
@@ -211,14 +225,19 @@ class YouTubeShortGenerator:
         try:
             width, height = clip.size
             target_ratio = self.short_ratio[0] / self.short_ratio[1]
+            
             if width/height > target_ratio:
                 new_width = height * target_ratio
                 x_center = width / 2
-                return crop(clip, x1=x_center - new_width/2, x2=x_center + new_width/2)
+                return crop(clip, 
+                            x1=x_center - new_width/2, 
+                            x2=x_center + new_width/2)
             else:
                 new_height = width / target_ratio
                 y_center = height / 2
-                return crop(clip, y1=y_center - new_height/2, y2=y_center + new_height/2)
+                return crop(clip,
+                            y1=y_center - new_height/2,
+                            y2=y_center + new_height/2)
         except Exception as e:
             st.error(f"Error converting to shorts format: {e}")
             return clip
@@ -248,11 +267,13 @@ class YouTubeShortGenerator:
             sample_time = start_time + duration / 2
             frame = clip.get_frame(sample_time)
             faces = self.detect_faces_in_frame(frame)
+            
             if len(faces) == 2:
                 centers = [(x + w/2, (x, y, w, h)) for (x, y, w, h) in faces]
                 centers.sort(key=lambda c: c[0])
                 left_face = centers[0][1]
                 right_face = centers[1][1]
+                
                 if self.should_flip(left_face, right_face):
                     st.info("Two faces detected - flipping video horizontally")
                     return mirror_x(clip)
@@ -266,15 +287,19 @@ class YouTubeShortGenerator:
         try:
             sample_times = np.linspace(start_time, start_time + duration, num=3)
             face_positions = []
+            
             for t in sample_times:
                 frame = clip.get_frame(t)
                 faces = self.detect_faces_in_frame(frame)
+                
                 for (x, y, w, h) in faces:
                     rel_x = (x + w/2) / clip.size[0]
                     rel_y = (y + h/2) / clip.size[1]
                     face_positions.append((rel_x, rel_y))
+            
             if not face_positions:
                 return 0.83
+            
             avg_y = sum(pos[1] for pos in face_positions) / len(face_positions)
             text_y = max(0.7, min(0.9, avg_y - 0.15))
             return text_y
@@ -287,23 +312,29 @@ class YouTubeShortGenerator:
         try:
             if not self.transcript:
                 return clip
+            
             clip_end = start_time + clip.duration
             relevant_segments = [
                 seg for seg in self.transcript
                 if seg['start'] < clip_end and (seg['start'] + seg['duration']) > start_time
             ]
+            
             font = self.font_mapping.get(self.language, 'Arial-Bold')
             text_y_position = self.get_safe_text_position(clip, start_time, clip.duration)
             text_y_position = max(text_y_position, 0.75)
+            
             subtitles = []
             for seg in relevant_segments:
                 seg_start = max(0, seg['start'] - start_time)
                 seg_end = min(clip.duration, (seg['start'] + seg['duration']) - start_time)
+                
                 words = seg['text'].split()
                 word_duration = (seg_end - seg_start) / len(words) if words else 0
+                
                 for idx, word in enumerate(words):
                     word_start = seg_start + idx * word_duration
                     word_end = word_start + word_duration
+                    
                     try:
                         txt_clip = TextClip(
                             word,
@@ -321,10 +352,12 @@ class YouTubeShortGenerator:
                         ).set_start(word_start
                         ).set_duration(word_end - word_start
                         ).fadein(0.2).fadeout(0.2)
+                        
                         subtitles.append(txt_clip)
                     except Exception as e:
                         st.error(f"Error creating text clip for word: {e}")
                         continue
+            
             if subtitles:
                 return CompositeVideoClip([clip] + subtitles)
             return clip
@@ -340,19 +373,25 @@ class YouTubeShortGenerator:
                 video_path = self.download_video()
                 if not video_path:
                     return ""
+
             actual_start = max(0, start_time)
             actual_end = min(end_time, self.video_length)
+            
             if actual_end - actual_start < self.min_short_length:
                 actual_end = min(actual_start + self.min_short_length, self.video_length)
                 if actual_end - actual_start < self.min_short_length:
                     actual_start = max(0, actual_end - self.min_short_length)
+            
             st.info(f"Creating short from {actual_start:.1f}s to {actual_end:.1f}s (duration: {actual_end-actual_start:.1f}s)")
+            
             with VideoFileClip(video_path) as clip:
                 subclip = clip.subclip(actual_start, actual_end)
                 vertical_clip = self.convert_to_shorts_format(subclip)
+                
                 duration = actual_end - actual_start
                 vertical_clip = self.apply_two_face_flip(vertical_clip, actual_start, duration)
                 final_clip = self.add_transcript_overlay(vertical_clip, actual_start)
+                
                 output_path = os.path.join(self.output_folder, f"short_{self.video_id}_{clip_num}.mp4")
                 final_clip.write_videofile(
                     output_path,
@@ -363,6 +402,7 @@ class YouTubeShortGenerator:
                     preset='ultrafast',
                     logger=None
                 )
+                
                 return output_path
         except Exception as e:
             st.error(f"Error generating short: {e}")
@@ -370,19 +410,13 @@ class YouTubeShortGenerator:
 
 def main():
     st.title("YouTube Short Generator")
-    st.markdown("Generate engaging shorts from YouTube videos with Vizard.ai-style transcript overlays. Supports auto language detection with a minimum 30-second duration.")
-    
+    st.markdown("Generate 9:16 YouTube Shorts with Vizard.ai-style transcript overlays. Supports auto language detection with a minimum 30-second duration.")
+
     generator = YouTubeShortGenerator()
+    
     url = st.text_input("Enter YouTube URL", placeholder="https://www.youtube.com/watch?v=...")
     
-    choice = st.radio("Create shorts from:", 
-                      ["Most engaging parts (requires transcript)", "Evenly divided 30-second segments"])
-    
-    if st.button("Generate Shorts"):
-        if not url:
-            st.error("Please enter a valid YouTube URL")
-            return
-        
+    if st.button("Process Video") and url:
         generator.video_url = url
         match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
         if match:
@@ -402,31 +436,32 @@ def main():
         if not video_path:
             return
         
-        if choice == "Most engaging parts (requires transcript)":
-            if not generator.analyze_engagement(video_path):
-                return
-        else:
-            if not generator.create_even_segments():
-                return
+        choice = st.radio("Create shorts from:", 
+                          ["Most engaging parts (requires transcript)", "Evenly divided 30-second segments"])
         
-        success_count = 0
-        with st.spinner("Generating shorts..."):
+        if st.button("Generate Shorts"):
+            if choice == "Most engaging parts (requires transcript)":
+                if not generator.analyze_engagement(video_path):
+                    return
+            else:
+                if not generator.create_even_segments():
+                    return
+            
+            success_count = 0
             for i, segment in enumerate(generator.engagement_data[:3], 1):
                 st.markdown(f"Generating short {i} from {segment['start']:.1f}s to {segment['end']:.1f}s")
                 output_path = generator.generate_short(segment['start'], segment['end'], i)
                 if output_path:
-                    st.success(f"Successfully created short {i}")
-                    with open(output_path, "rb") as file:
-                        st.download_button(f"Download Short {i}", file, file_name=f"short_{i}.mp4")
+                    st.success(f"Successfully created: {output_path}")
                     success_count += 1
-        
-        if os.path.exists(video_path):
+            
             try:
-                os.remove(video_path)
+                if os.path.exists(video_path):
+                    os.remove(video_path)
             except Exception as e:
-                st.warning(f"Could not remove temporary file: {e}")
-        
-        st.markdown(f"**Successfully created {success_count} shorts with Vizard.ai-style overlays**")
+                st.warning(f"Could not remove temporary file {video_path}: {e}")
+            
+            st.markdown(f"Successfully created **{success_count}** shorts with Vizard.ai-style overlays")
 
 if __name__ == "__main__":
     main()
