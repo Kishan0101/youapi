@@ -1,5 +1,7 @@
-ffmpeg
-imagemagick
-libsm6
-libxext6
-libgl1-mesa-glx  # Still include this as a fallback, though headless OpenCV should bypass the need
+moviepy==2.0.0
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+decorator==5.2.1
+numpy
+pillow
+opencv-python-headless
