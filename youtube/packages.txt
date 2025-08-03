@@ -2,4 +2,4 @@ ffmpeg
 imagemagick
 libsm6
 libxext6
-libgl1-mesa-glx
+libgl1-mesa-glx  # Still include this as a fallback, though headless OpenCV should bypass the need
